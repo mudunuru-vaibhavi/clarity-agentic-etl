@@ -1,0 +1,480 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cedar Valley Health · Clarity Reporting</title>
+<meta name="description" content="Executive, finance, data-quality and IT reporting from a synthetic Epic Clarity ETL pipeline.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600&display=swap">
+<script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"></script>
+<style>
+/* Layout: header with filters, tab bar, then each audience's page: tiles first, charts after. */
+:root {
+  --bg: #fafaf8; --panel: #ffffff; --fg: #15161a; --muted: #5d5e66; --line: #e6e5e0; --grid: #ecebe7;
+  --accent: #2a78d6; --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4;
+  --soft: #cde2fb; --ok: #0a8a0a; --warn: #b77a00; --bad: #d03b3b; --ok-bg: #e5f4e5; --bad-bg: #fbe7e7;
+  --font: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --display: "Space Grotesk", "Inter", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #141517; --panel: #1c1d20; --fg: #eeede9; --muted: #a7a6a0; --line: #2d2e33; --grid: #26272b;
+    --accent: #3987e5; --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181;
+    --soft: #23395a; --ok: #3fbf3f; --warn: #e0a42a; --bad: #e66767; --ok-bg: #18301b; --bad-bg: #3a1d1e;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 var(--font); }
+.wrap { max-width: 1320px; margin: 0 auto; padding: 28px max(16px, env(safe-area-inset-left)) 48px; }
+h1 { font: 600 clamp(24px, 3.2vw, 34px)/1.15 var(--display); margin: 0 0 6px; text-wrap: balance; }
+h2 { font: 600 15px/1.3 var(--font); margin: 0 0 10px; }
+.lede { font-size: 16px; color: var(--fg); margin: 4px 0 4px; max-width: 75ch; }
+.meta { color: var(--muted); font-size: 12.5px; margin: 0; }
+.controls { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; margin: 18px 0 8px; }
+.controls label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+select { font: inherit; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--fg); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { border: 1px solid var(--line); background: var(--panel); color: var(--fg); border-radius: 999px; padding: 5px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+.chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+nav.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin: 14px 0 20px; overflow-x: auto; }
+nav.tabs a { padding: 10px 14px; color: var(--muted); text-decoration: none; font-weight: 500; border-bottom: 2px solid transparent; white-space: nowrap; }
+nav.tabs a[aria-current="page"] { color: var(--accent); border-color: var(--accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.tile { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; min-width: 0; }
+.tile .label { color: var(--muted); font-size: 12.5px; }
+.tile .value { font: 600 26px/1.2 var(--display); font-variant-numeric: tabular-nums; margin: 4px 0 2px; }
+.tile .delta { font-size: 12px; display: inline-block; padding: 1px 8px; border-radius: 999px; color: var(--muted); background: var(--grid); }
+.tile .delta.good { color: var(--ok); background: var(--ok-bg); }
+.tile .delta.bad { color: var(--bad); background: var(--bad-bg); }
+.grid { display: grid; gap: 16px; grid-template-columns: repeat(12, 1fr); margin-bottom: 16px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; min-width: 0; grid-column: span 12; }
+@media (min-width: 900px) { .w7 { grid-column: span 7; } .w5 { grid-column: span 5; } .w6 { grid-column: span 6; } }
+.chart { width: 100%; height: 300px; }
+.note { color: var(--muted); font-size: 12.5px; margin: 8px 0 0; }
+.tablewrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 13px; }
+th, td { padding: 7px 8px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+th { color: var(--muted); font-weight: 500; font-size: 12px; }
+td.num, th.num { text-align: right; }
+.bar { display: inline-block; height: 6px; border-radius: 3px; background: var(--accent); vertical-align: middle; margin-right: 6px; }
+.pill { display: inline-block; font-size: 12px; padding: 1px 9px; border-radius: 999px; background: var(--grid); color: var(--muted); }
+.pill.ok { background: var(--ok-bg); color: var(--ok); } .pill.bad { background: var(--bad-bg); color: var(--bad); }
+details.incident { border: 1px solid var(--line); border-left: 4px solid var(--ok); border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; background: var(--panel); }
+details.incident.open { border-left-color: var(--bad); }
+details.incident summary { cursor: pointer; font-weight: 500; }
+details.incident p { margin: 8px 0; max-width: 95ch; }
+details.incident ul { margin: 4px 0 8px 18px; padding: 0; }
+footer { color: var(--muted); font-size: 12.5px; margin-top: 28px; border-top: 1px solid var(--line); padding-top: 14px; }
+footer a { color: var(--accent); }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Cedar Valley Health · Clarity reporting</h1>
+    <p class="lede" id="lede">Loading…</p>
+    <p class="meta" id="meta"></p>
+    <div class="controls">
+      <label for="window">Period</label>
+      <select id="window">
+        <option value="7">Last 7 days</option>
+        <option value="30" selected>Last 30 days</option>
+        <option value="60">Last 60 days</option>
+        <option value="90">Last 90 days</option>
+      </select>
+      <label>Locations</label>
+      <div class="chips" id="locations"></div>
+    </div>
+  </header>
+
+  <nav class="tabs" aria-label="Audience">
+    <a href="#executive" data-tab="executive">Executive</a>
+    <a href="#finance" data-tab="finance">Finance</a>
+    <a href="#data-quality" data-tab="data-quality">Data quality</a>
+    <a href="#it" data-tab="it">IT &amp; pipeline</a>
+  </nav>
+
+  <section id="executive" data-section>
+    <div class="tiles" id="exec-tiles"></div>
+    <div class="grid">
+      <div class="card w7"><h2>Are visit volumes holding up?</h2><div class="chart" id="c-visits"></div></div>
+      <div class="card w5"><h2>Which departments carry the load?</h2><div class="chart" id="c-depts"></div></div>
+      <div class="card w5"><h2>Where do patients miss appointments?</h2><div class="chart" id="c-noshow"></div>
+        <p class="note">No-show rate among scheduled visits; departments with at least 30 scheduled visits in the period.</p></div>
+      <div class="card w7"><h2>Busiest providers (all time)</h2><div class="tablewrap" id="t-providers"></div></div>
+    </div>
+  </section>
+
+  <section id="finance" data-section hidden>
+    <div class="tiles" id="fin-tiles"></div>
+    <p class="note" style="margin:-8px 0 16px">A/R, DNFB, denial rate and days to bill are a snapshot as of the latest data. Charges, payments and denial reasons follow the period. Locations don't filter finance.</p>
+    <div class="grid">
+      <div class="card w6"><h2>How old is our A/R, and who owes it?</h2><div class="chart" id="c-ar"></div></div>
+      <div class="card w6"><h2>Are collections keeping pace with charges?</h2><div class="chart" id="c-collect"></div></div>
+      <div class="card w7"><h2>Which payers deny most and pay slowest?</h2><div class="tablewrap" id="t-payers"></div></div>
+      <div class="card w5"><h2>Why are claims denied?</h2><div class="chart" id="c-denials"></div></div>
+    </div>
+  </section>
+
+  <section id="data-quality" data-section hidden>
+    <div class="tiles" id="dq-tiles"></div>
+    <div class="grid">
+      <div class="card w7"><h2>When did checks warn or block a load?</h2><div class="chart" id="c-dq"></div>
+        <p class="note">About 80 checks run every night: checksum, row count, schema, value types, duplicate keys, required fields, foreign keys, balance reconciliation, freshness and volume. A failure stops that night's load; a warning is logged and the load continues.</p></div>
+      <div class="card w5"><h2>Is each table fresh?</h2><div class="tablewrap" id="t-fresh"></div></div>
+      <div class="card w6"><h2>PATIENT.ZIP: share of rows left blank</h2><div class="chart" id="c-comp-0"></div></div>
+      <div class="card w6"><h2>PAT_ENC.VISIT_PROV_ID: share of rows left blank</h2><div class="chart" id="c-comp-1"></div></div>
+    </div>
+  </section>
+
+  <section id="it" data-section hidden>
+    <div class="tiles" id="it-tiles"></div>
+    <div class="grid">
+      <div class="card"><h2>Did every nightly run land?</h2><div class="chart" id="c-runs" style="height:260px"></div>
+        <p class="note">Each night loads all or nothing. An agent retry shows as a second run on the same night.</p></div>
+    </div>
+    <h2>What broke, and what did the agent do?</h2>
+    <div id="incidents"></div>
+  </section>
+
+  <footer>
+    Synthetic data for a fictional health system, produced and loaded by the
+    <code>clarity-agentic-etl</code> pipeline. No real patient data. <span id="built"></span>
+  </footer>
+</div>
+
+<script id="data" type="application/json">__DATA__</script>
+<script>
+(() => {
+const D = JSON.parse(document.getElementById("data").textContent);
+const $ = (id) => document.getElementById(id);
+const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const DAY = 864e5;
+const iso = (t) => new Date(t).toISOString().slice(0, 10);
+const addDays = (d, n) => iso(Date.parse(d + "T00:00:00Z") + n * DAY);
+const fmtInt = (v) => Math.round(v).toLocaleString("en-US");
+const money = (v) => {
+  if (v == null || isNaN(v)) return "–";
+  const a = Math.abs(v);
+  if (a >= 1e6) return "$" + (v / 1e6).toFixed(1) + "M";
+  if (a >= 1e3) return "$" + (v / 1e3).toFixed(1) + "K";
+  return "$" + Math.round(v);
+};
+const pct = (v, d = 1) => (v == null || isNaN(v) ? "–" : (v * 100).toFixed(d) + "%");
+const sum = (rows, k) => rows.reduce((s, r) => s + (+r[k] || 0), 0);
+const title = (s) => s.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase())
+  .replace(/\bCvmc\b/g, "CVMC").replace(/Ob\/Gyn/g, "OB/GYN").replace(/\bHmo\b/g, "HMO")
+  .replace(/\bPpo\b/g, "PPO").replace(/\bA\/B\b/g, "A/B");
+
+const LOCS = [...new Set(D.activity.map((r) => r.location))].sort();
+const state = { days: 30, locs: new Set(LOCS), tab: "executive" };
+
+function range() {
+  const end = D.meta.as_of, start = addDays(end, -(state.days - 1));
+  const pEnd = addDays(start, -1), pStart = addDays(pEnd, -(state.days - 1));
+  return { start, end, pStart, pEnd };
+}
+const within = (d, a, b) => d >= a && d <= b;
+function change(cur, prev) { return prev ? (cur - prev) / prev : null; }
+function deltaText(c, label = "vs prior period") {
+  return c == null ? "" : `${c >= 0 ? "▲" : "▼"} ${Math.abs(c * 100).toFixed(1)}% ${label}`;
+}
+
+function tiles(el, items) {
+  el.replaceChildren(...items.map((t) => {
+    const d = document.createElement("div"); d.className = "tile";
+    const l = document.createElement("div"); l.className = "label"; l.textContent = t.label;
+    const v = document.createElement("div"); v.className = "value"; v.textContent = t.value;
+    d.append(l, v);
+    if (t.delta) {
+      const s = document.createElement("span"); s.className = "delta " + (t.tone || ""); s.textContent = t.delta;
+      d.append(s);
+    }
+    return d;
+  }));
+}
+
+function layout(extra = {}) {
+  const fg = css("--muted"), grid = css("--grid");
+  return Object.assign({
+    margin: { l: 56, r: 16, t: 8, b: 40 }, paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)",
+    font: { family: "Inter, system-ui, sans-serif", size: 12, color: fg },
+    xaxis: { showgrid: false, linecolor: css("--line"), automargin: true },
+    yaxis: { gridcolor: grid, zeroline: false, automargin: true, rangemode: "tozero" },
+    legend: { orientation: "h", y: 1.12, x: 0 }, hoverlabel: { bgcolor: css("--panel"), font: { color: css("--fg") } },
+    bargap: 0.25, barcornerradius: 4, showlegend: true,
+  }, extra);
+}
+const plot = (id, traces, extra) => Plotly.react($(id), traces, layout(extra), { displayModeBar: false, responsive: true });
+
+function hbar(id, labels, values, text, color, hover, xfmt) {
+  plot(id, [{ type: "bar", orientation: "h", y: labels, x: values, text, textposition: "outside", cliponaxis: false,
+    marker: { color }, hovertemplate: hover }],
+    { showlegend: false, margin: { l: 10, r: 40, t: 8, b: 30 },
+      xaxis: { showgrid: true, gridcolor: css("--grid"), tickformat: xfmt || "", range: [0, Math.max(...values, 0) * 1.2] },
+      yaxis: { automargin: true, gridcolor: "rgba(0,0,0,0)" } });
+}
+
+function table(el, cols, rows) {
+  const t = document.createElement("table");
+  const head = t.createTHead().insertRow();
+  cols.forEach((c) => { const th = document.createElement("th"); th.textContent = c.label; if (c.num) th.className = "num"; head.append(th); });
+  const body = t.createTBody();
+  rows.forEach((r) => {
+    const tr = body.insertRow();
+    cols.forEach((c) => {
+      const td = tr.insertCell(); if (c.num) td.className = "num";
+      const v = c.render ? c.render(r) : r[c.key];
+      if (v instanceof Node) td.append(v); else td.textContent = v;
+    });
+  });
+  el.replaceChildren(t);
+}
+const pill = (text, tone) => { const s = document.createElement("span"); s.className = "pill " + (tone || ""); s.textContent = text; return s; };
+
+// ---- Executive -----------------------------------------------------------------------
+function activityIn(a, b) { return D.activity.filter((r) => state.locs.has(r.location) && within(r.date, a, b)); }
+
+function renderExecutive() {
+  const { start, end, pStart, pEnd } = range();
+  const cur = activityIn(start, end), prev = activityIn(pStart, pEnd);
+  const done = sum(cur, "completed"), donePrev = sum(prev, "completed");
+  const ns = sum(cur, "no_shows") / (sum(cur, "scheduled") || NaN);
+  const nsPrev = sum(prev, "no_shows") / (sum(prev, "scheduled") || NaN);
+  const ed = sum(cur, "ed_visits"), adm = sum(cur, "admissions");
+  const cDone = change(done, donePrev);
+  tiles($("exec-tiles"), [
+    { label: "Completed visits", value: fmtInt(done), delta: deltaText(cDone), tone: cDone >= 0 ? "good" : "bad" },
+    { label: "Avg visits per day", value: fmtInt(done / state.days) },
+    { label: "No-show rate", value: pct(ns), delta: isNaN(nsPrev) ? "" : `${ns <= nsPrev ? "▼" : "▲"} ${Math.abs((ns - nsPrev) * 100).toFixed(1)} pts`, tone: ns <= nsPrev ? "good" : "bad" },
+    { label: "ED visits", value: fmtInt(ed), delta: deltaText(change(ed, sum(prev, "ed_visits"))) },
+    { label: "Admissions", value: fmtInt(adm), delta: deltaText(change(adm, sum(prev, "admissions"))) },
+    { label: "Telehealth share", value: pct(sum(cur, "telehealth") / (done || NaN)) },
+  ]);
+  $("lede").textContent = `In the ${state.days === 7 ? "last 7 days" : "last " + state.days + " days"}, ` +
+    `${fmtInt(done)} visits were completed` + (cDone == null ? "." : `, ${cDone >= 0 ? "up" : "down"} ${Math.abs(cDone * 100).toFixed(1)}% on the period before.`) +
+    ` Open A/R stands at ${money(D.kpis.total_ar)}, and ${pct(D.kpis.first_pass_denial_rate)} of claims are denied on first pass.`;
+
+  // daily visits with a 7-day average computed over the full history
+  const byDay = new Map();
+  D.activity.forEach((r) => { if (state.locs.has(r.location)) byDay.set(r.date, (byDay.get(r.date) || 0) + r.completed); });
+  const days = [...byDay.keys()].sort();
+  const avg = days.map((d, i) => { const w = days.slice(Math.max(0, i - 6), i + 1); return w.reduce((s, x) => s + byDay.get(x), 0) / w.length; });
+  const keep = days.map((d, i) => [d, byDay.get(d), avg[i]]).filter(([d]) => within(d, start, end));
+  plot("c-visits", [
+    { type: "bar", name: "Completed visits", x: keep.map((k) => k[0]), y: keep.map((k) => k[1]), marker: { color: css("--soft") },
+      hovertemplate: "%{x|%a %b %d}: %{y:,} visits<extra></extra>" },
+    { type: "scatter", mode: "lines", name: "7-day average", x: keep.map((k) => k[0]), y: keep.map((k) => k[2]),
+      line: { color: css("--s1"), width: 2 }, hovertemplate: "7-day avg: %{y:,.0f}<extra></extra>" },
+  ], { hovermode: "x unified", bargap: 0.1 });
+
+  const dep = new Map();
+  cur.forEach((r) => { const d = dep.get(r.department) || { c: 0, n: 0, s: 0 }; d.c += r.completed; d.n += r.no_shows; d.s += r.scheduled; dep.set(r.department, d); });
+  const depRows = [...dep.entries()].sort((a, b) => a[1].c - b[1].c);
+  hbar("c-depts", depRows.map((d) => title(d[0])), depRows.map((d) => d[1].c), depRows.map((d) => fmtInt(d[1].c)),
+    css("--s1"), "%{y}: %{x:,} visits<extra></extra>");
+  const ns2 = depRows.filter((d) => d[1].s >= 30).map((d) => [d[0], d[1].n / d[1].s]).sort((a, b) => a[1] - b[1]);
+  hbar("c-noshow", ns2.map((d) => title(d[0])), ns2.map((d) => d[1]), ns2.map((d) => pct(d[1])),
+    css("--s1"), "%{y}: %{x:.1%} no-show<extra></extra>", ".0%");
+
+  table($("t-providers"), [
+    { label: "Provider", render: (r) => title(r.prov_name) }, { label: "Type", key: "prov_type" },
+    { label: "Department", render: (r) => title(r.department_name) },
+    { label: "Visits", num: true, render: (r) => fmtInt(r.completed_visits) },
+    { label: "Patients", num: true, render: (r) => fmtInt(r.unique_patients) },
+  ], D.providers);
+}
+
+// ---- Finance -------------------------------------------------------------------------
+const FIN_ORDER = ["Commercial", "Medicare", "Medicaid", "Self-Pay", "Workers Comp"];
+function renderFinance() {
+  const { start, end, pStart, pEnd } = range(), k = D.kpis;
+  const cur = D.finance.filter((r) => within(r.date, start, end)), prev = D.finance.filter((r) => within(r.date, pStart, pEnd));
+  const chg = sum(cur, "charges"), pay = sum(cur, "payments");
+  const cChg = change(chg, sum(prev, "charges")), cPay = change(pay, sum(prev, "payments"));
+  tiles($("fin-tiles"), [
+    { label: "Gross charges", value: money(chg), delta: deltaText(cChg), tone: cChg >= 0 ? "good" : "bad" },
+    { label: "Payments", value: money(pay), delta: deltaText(cPay), tone: cPay >= 0 ? "good" : "bad" },
+    { label: "Total A/R", value: money(k.total_ar) },
+    { label: "Days in A/R", value: (+k.days_in_ar).toFixed(1) },
+    { label: "DNFB (discharged, not billed)", value: money(k.dnfb_amount), delta: fmtInt(k.dnfb_accounts) + " accounts" },
+    { label: "First-pass denial rate", value: pct(k.first_pass_denial_rate) },
+    { label: "Avg days to bill", value: (+k.avg_days_to_bill).toFixed(1) },
+  ]);
+
+  const buckets = ["0-30", "31-60", "61-90", "90+"];
+  const classes = FIN_ORDER.filter((c) => D.ar.some((r) => r.fin_class === c));
+  plot("c-ar", classes.map((c, i) => ({
+    type: "bar", name: c, x: buckets,
+    y: buckets.map((b) => sum(D.ar.filter((r) => r.fin_class === c && r.aging_bucket === b), "balance")),
+    marker: { color: css(`--s${i + 1}`), line: { color: css("--panel"), width: 1.5 } },
+    hovertemplate: `${c} · %{x} days: %{y:$,.0f}<extra></extra>`,
+  })), { barmode: "stack", legend: { orientation: "h", y: 1.14, x: 0, traceorder: "normal" },
+         yaxis: { gridcolor: css("--grid"), tickprefix: "$", tickformat: "~s" },
+         xaxis: { title: { text: "Days since discharge" }, showgrid: false } });
+
+  // weekly when the period is 4 weeks or more (full weeks only), otherwise daily
+  const weekly = state.days >= 28, agg = new Map();
+  cur.forEach((r) => {
+    const t = Date.parse(r.date + "T00:00:00Z"), dow = (new Date(t).getUTCDay() + 6) % 7;
+    const key = weekly ? iso(t - dow * DAY) : r.date;
+    const a = agg.get(key) || { charges: 0, payments: 0 }; a.charges += r.charges; a.payments += r.payments; agg.set(key, a);
+  });
+  let keys = [...agg.keys()].sort();
+  if (weekly) keys = keys.filter((w) => w >= start && addDays(w, 6) <= end);
+  plot("c-collect", [["charges", "Charges", "--s1"], ["payments", "Payments", "--s2"]].map(([f, name, c]) => ({
+    type: "scatter", mode: "lines+markers", name, x: keys, y: keys.map((w) => agg.get(w)[f]),
+    line: { color: css(c), width: 2 }, marker: { size: 8 }, hovertemplate: `${name}: %{y:$,.0f}<extra></extra>`,
+  })), { hovermode: "x unified", yaxis: { gridcolor: css("--grid"), tickprefix: "$", tickformat: "~s", rangemode: "tozero" },
+         xaxis: { title: { text: weekly ? "Week starting" : "Day" }, showgrid: false } });
+
+  const maxDen = Math.max(...D.payers.map((p) => p.denial_rate || 0));
+  table($("t-payers"), [
+    { label: "Payer", render: (r) => title(r.payor_name) }, { label: "Class", key: "fin_class" },
+    { label: "Accounts billed", num: true, render: (r) => fmtInt(r.accounts_billed) },
+    { label: "First-pass denial rate", render: (r) => {
+        if (r.denial_rate == null) return "–";
+        const s = document.createElement("span"), b = document.createElement("span");
+        b.className = "bar"; b.style.width = Math.round(60 * r.denial_rate / maxDen) + "px";
+        s.append(b, document.createTextNode(pct(r.denial_rate))); return s; } },
+    { label: "Avg days to pay", num: true, render: (r) => (r.avg_days_to_pay == null ? "–" : (+r.avg_days_to_pay).toFixed(1)) },
+    { label: "Open balance", num: true, render: (r) => money(r.open_balance) },
+  ], [...D.payers].sort((a, b) => (b.denial_rate || 0) - (a.denial_rate || 0)));
+
+  const den = new Map();
+  D.denials.filter((r) => within(r.remit_date, start, end)).forEach((r) => {
+    const key = r.carc_code + "  " + r.carc_desc, a = den.get(key) || { n: 0, amt: 0 };
+    a.n += r.denials; a.amt += r.denied_amount; den.set(key, a);
+  });
+  const dr = [...den.entries()].sort((a, b) => a[1].n - b[1].n);
+  hbar("c-denials", dr.map((d) => d[0]), dr.map((d) => d[1].n), dr.map((d) => String(d[1].n)), css("--s1"),
+    "%{y}<br>%{x} denials<extra></extra>");
+}
+
+// ---- Data quality --------------------------------------------------------------------
+function renderDQ() {
+  const { start, end } = range();
+  const p = sum(D.dq, "pass"), w = sum(D.dq, "warn"), f = sum(D.dq, "fail"), total = p + w + f;
+  const latest = D.freshness.reduce((m, r) => (r.last_extract_date > m ? r.last_extract_date : m), "");
+  const daily = D.freshness.filter((r) => r.files_loaded > 1);
+  tiles($("dq-tiles"), [
+    { label: "Checks run (all nights)", value: fmtInt(total) },
+    { label: "Pass rate", value: pct(p / total, 2) },
+    { label: "Warnings", value: fmtInt(w) },
+    { label: "Blocking failures", value: fmtInt(f), delta: f ? "each held a night's load" : "", tone: f ? "bad" : "" },
+    { label: "Daily tables current", value: `${daily.filter((r) => r.last_extract_date === latest).length} / ${daily.length}` },
+  ]);
+  const dq = D.dq.filter((r) => within(r.date, start, end));
+  plot("c-dq", [
+    { type: "bar", name: "⚠ Warning", x: dq.map((r) => r.date), y: dq.map((r) => r.warn), marker: { color: css("--warn") },
+      hovertemplate: "%{x|%b %d}: %{y} warning(s)<extra></extra>" },
+    { type: "bar", name: "✖ Blocking failure", x: dq.map((r) => r.date), y: dq.map((r) => r.fail), marker: { color: css("--bad") },
+      hovertemplate: "%{x|%b %d}: %{y} failure(s)<extra></extra>" },
+  ], { barmode: "stack", yaxis: { gridcolor: css("--grid"), dtick: 1, rangemode: "tozero" } });
+
+  table($("t-fresh"), [
+    { label: "Clarity table", key: "table_name" },
+    { label: "Rows", num: true, render: (r) => fmtInt(r.warehouse_rows) },
+    { label: "Last extract", key: "last_extract_date" },
+    { label: "Status", render: (r) => (r.files_loaded <= 1 || r.last_extract_date === latest)
+        ? pill("✔ current", "ok")
+        : pill(`⚠ ${Math.round((Date.parse(latest) - Date.parse(r.last_extract_date)) / DAY)} day(s) behind`, "bad") },
+  ], D.freshness);
+
+  [["PATIENT", "ZIP"], ["PAT_ENC", "VISIT_PROV_ID"]].forEach(([t, c], i) => {
+    const all = D.completeness.filter((r) => r.table_name === t && r.column_name === c).sort((a, b) => (a.extract_date < b.extract_date ? -1 : 1));
+    const avg = all.map((r, j) => { const s = all.slice(Math.max(0, j - 6), j + 1); return s.reduce((x, y) => x + y.metric, 0) / s.length; });
+    const idx = all.map((r, j) => j).filter((j) => within(all[j].extract_date, start, end));
+    const x = idx.map((j) => all[j].extract_date);
+    plot(`c-comp-${i}`, [
+      { type: "scatter", mode: "markers", name: "Nightly file", x, y: idx.map((j) => all[j].metric),
+        marker: { size: 7, color: css("--line") }, hovertemplate: "%{x|%b %d}: %{y:.1%} blank<extra></extra>" },
+      { type: "scatter", mode: "lines", name: "7-night average", x, y: idx.map((j) => avg[j]),
+        line: { color: css("--s1"), width: 2 }, hovertemplate: "7-night avg: %{y:.2%}<extra></extra>" },
+      { type: "scatter", mode: "lines", name: "Warning limit", x, y: idx.map((j) => all[j].threshold),
+        line: { color: css("--muted"), width: 1, dash: "dash" }, hoverinfo: "skip" },
+    ], { yaxis: { gridcolor: css("--grid"), tickformat: ".0%", rangemode: "tozero" } });
+  });
+}
+
+// ---- IT & pipeline -------------------------------------------------------------------
+function renderIT() {
+  const { start, end } = range();
+  const runs = D.runs, ok = runs.filter((r) => r.status === "success");
+  const healed = D.incidents.filter((i) => i.status === "resolved" && !i.needs_human_approval).length;
+  const open = D.incidents.filter((i) => i.status !== "resolved").length;
+  const loaded = ok.filter((r) => r.rows_loaded > 0);
+  tiles($("it-tiles"), [
+    { label: "Pipeline runs", value: fmtInt(runs.length) },
+    { label: "Success rate", value: pct(ok.length / runs.length) },
+    { label: "Rows loaded", value: fmtInt(sum(runs, "rows_loaded")) },
+    { label: "Avg run time", value: (sum(loaded, "duration_sec") / (loaded.length || 1)).toFixed(1) + "s" },
+    { label: "Incidents auto-healed", value: `${healed} of ${D.incidents.length}` },
+    { label: "Open incidents", value: fmtInt(open), tone: open ? "bad" : "good", delta: open ? "needs a person" : "all clear" },
+  ]);
+  const inRange = runs.filter((r) => within(r.started_at.slice(0, 10), start, addDays(end, 1)));
+  const good = inRange.filter((r) => r.status !== "failed"), bad = inRange.filter((r) => r.status === "failed");
+  const hover = "Run %{customdata[0]} (%{customdata[1]})<br>%{x|%b %d %H:%M}<br>%{y:,} rows<br>%{customdata[2]}<extra></extra>";
+  plot("c-runs", [
+    { type: "bar", name: "✔ Run loaded", x: good.map((r) => r.started_at), y: good.map((r) => r.rows_loaded),
+      marker: { color: css("--ok") }, customdata: good.map((r) => [r.run_id, r.trigger_type, r.message]), hovertemplate: hover },
+    { type: "scatter", mode: "markers", name: "✖ Run failed (loaded nothing)", x: bad.map((r) => r.started_at), y: bad.map(() => 0),
+      marker: { symbol: "x", size: 14, color: css("--bad") }, cliponaxis: false,
+      customdata: bad.map((r) => [r.run_id, r.trigger_type, r.message]), hovertemplate: hover },
+  ], { bargap: 0.3, yaxis: { gridcolor: css("--grid"), title: { text: "Rows loaded" }, rangemode: "tozero" } });
+
+  const box = $("incidents");
+  if (!D.incidents.length) { box.textContent = "No incidents."; return; }
+  box.replaceChildren(...[...D.incidents].reverse().map((i) => {
+    const d = document.createElement("details");
+    d.className = "incident" + (i.status === "resolved" ? "" : " open");
+    const s = document.createElement("summary");
+    s.textContent = `${i.status === "resolved" ? "✔" : "⚠"} #${i.incident_id} · ${i.title} · ${i.severity} · ${i.status.replace("_", " ")}`;
+    const meta = document.createElement("p"); meta.className = "note";
+    meta.textContent = `Detected ${String(i.created_at).replace("T", " ")} · investigated by the agent · human approval needed: ${i.needs_human_approval ? "yes" : "no"}` +
+      (i.resolved_at ? ` · resolved ${String(i.resolved_at).replace("T", " ")}` : "");
+    const para = (label, text) => { const p = document.createElement("p"); const b = document.createElement("b"); b.textContent = label + " "; p.append(b, document.createTextNode(text || "")); return p; };
+    d.append(s, meta, para("What happened.", i.root_cause), para("Impact.", i.impact));
+    if (i.actions_taken) {
+      const p = para("Agent actions.", ""); const ul = document.createElement("ul");
+      i.actions_taken.split("\n").forEach((a) => { const li = document.createElement("li"); li.textContent = a; ul.append(li); });
+      d.append(p, ul);
+    }
+    d.append(para("Recommended fix.", i.recommended_fix));
+    return d;
+  }));
+}
+
+// ---- wiring ----------------------------------------------------------------------------
+const RENDER = { executive: renderExecutive, finance: renderFinance, "data-quality": renderDQ, it: renderIT };
+function show() {
+  document.querySelectorAll("[data-section]").forEach((s) => { s.hidden = s.id !== state.tab; });
+  document.querySelectorAll("nav.tabs a").forEach((a) => a.setAttribute("aria-current", a.dataset.tab === state.tab ? "page" : "false"));
+  renderExecutive();               // keeps the headline sentence current
+  if (state.tab !== "executive") RENDER[state.tab]();
+}
+function route() { const h = location.hash.slice(1); state.tab = RENDER[h] ? h : "executive"; show(); }
+
+$("meta").textContent = `Data through ${new Date(D.meta.as_of + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })}` +
+  ` · last pipeline run ${D.runs[D.runs.length - 1].started_at.replace("T", " ")}`;
+$("built").textContent = `Built ${D.meta.built_at}.`;
+$("locations").replaceChildren(...LOCS.map((l) => {
+  const b = document.createElement("button"); b.className = "chip"; b.type = "button"; b.textContent = l; b.setAttribute("aria-pressed", "true");
+  b.onclick = () => {
+    if (state.locs.has(l) && state.locs.size > 1) state.locs.delete(l); else state.locs.add(l);
+    b.setAttribute("aria-pressed", state.locs.has(l)); show();
+  };
+  return b;
+}));
+$("window").onchange = (e) => { state.days = +e.target.value; show(); };
+window.addEventListener("hashchange", route);
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", show);
+route();
+})();
+</script>
+</body>
+</html>

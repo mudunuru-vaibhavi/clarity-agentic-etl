@@ -1,0 +1,26 @@
+name: Nightly pipeline
+
+on:
+  schedule:
+    - cron: "15 7 * * *"  # 2:15 AM US Central
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync
+      - name: Run the full demo (simulate, load, break, agent, marts)
+        run: ./scripts/demo.sh
+      - name: Pipeline status
+        run: uv run clarity-etl status --limit 10 | tee run-report.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nightly-report-${{ github.run_number }}
+          path: |
+            run-report.txt
+            data/incidents/
+            data/warehouse.db
+          retention-days: 14

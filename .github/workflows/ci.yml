@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    name: Lint and unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --all-extras
+      - run: uv run ruff check .
+      - run: uv run pytest -q
+
+  integration:
+    name: End to end (SFTP + SQL Server)
+    runs-on: ubuntu-latest
+    needs: test
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: ${{ secrets.CI_MSSQL_PASSWORD || 'Ci-Only-Pass-2026!' }}
+        ports: ["1433:1433"]
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P \"$MSSQL_SA_PASSWORD\" -Q 'SELECT 1'"
+          --health-interval 10s --health-timeout 5s --health-retries 12
+      sftp:
+        image: atmoz/sftp:alpine
+        ports: ["2222:22"]
+        options: --name sftp
+        env:
+          SFTP_USERS: clarity:ci-sftp-pass:::outbox
+    env:
+      MSSQL_SA_PASSWORD: ${{ secrets.CI_MSSQL_PASSWORD || 'Ci-Only-Pass-2026!' }}
+      SFTP_PASSWORD: ci-sftp-pass
+      SFTP_TRUST_NEW_HOST: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --all-extras
+      - name: Create the warehouse database
+        run: |
+          uv run python -c "import os, pymssql; c = pymssql.connect('localhost', 'sa', os.environ['MSSQL_SA_PASSWORD'], autocommit=True); c.cursor().execute('CREATE DATABASE clarity_wh')"
+      - name: Simulate 3 weeks of Clarity and push the drops to SFTP
+        run: |
+          uv run clarity-etl generate --start 2026-10-01 --end 2026-10-21 --patients 800
+          uv run python scripts/upload_sftp.py localhost 2222 clarity /outbox data/sftp/outbox
+      - name: Nightly loads over SFTP into SQL Server, then break one night
+        env:
+          CLARITY_ETL_DB_URL: mssql+pymssql://sa:${{ env.MSSQL_SA_PASSWORD }}@localhost:1433/clarity_wh
+          CLARITY_ETL_SOURCE: sftp://clarity@localhost:2222/outbox
+        run: |
+          uv run clarity-etl backfill --until 2026-10-14
+          uv run clarity-etl break transfer_corruption --date 2026-10-15
+          uv run clarity-etl backfill --with-agent
+          uv run clarity-etl status --limit 5
+          uv run python - <<'PY'
+          import os
+          from sqlalchemy import create_engine, text
+          e = create_engine(os.environ["CLARITY_ETL_DB_URL"])
+          with e.connect() as c:
+              runs = c.execute(text("SELECT COUNT(*) FROM etl_run WHERE status='success'")).scalar()
+              enc = c.execute(text("SELECT COUNT(*) FROM clarity_pat_enc")).scalar()
+              inc = c.execute(text("SELECT status FROM etl_incident")).scalars().all()
+          print(f"{runs} successful runs, {enc} encounters, incidents: {inc}")
+          assert runs >= 21 and enc > 0 and inc == ["resolved"]
+          PY
